@@ -250,6 +250,32 @@ func TestParseToleratesFewBadLines(t *testing.T) {
 	}
 }
 
+// Tarefa 008: uma linha ipv4 com contagem gigante (a soma cur+count dava a
+// volta em uint64) é descartada com aviso, sem derrubar o arquivo e sem gerar
+// blocos absurdos como 0.0.0.0/0.
+func TestParseDescartaIPv4ComContagemQueEstouraUint64(t *testing.T) {
+	recs := append(good(400),
+		"rir|BR|ipv4|192.0.2.0|256|20200101|allocated|ok1",
+		"rir|BR|ipv4|0.0.0.1|18446744073709551615|20200101|allocated|big1",         // 2^64-1: cur+count = 0
+		"rir|BR|ipv4|255.255.255.255|18446744069414584321|20200101|allocated|big2", // 2^64-(2^32-1): cur+count = 2^64
+		"rir|BR|ipv4|198.51.100.0|256|20200101|allocated|ok2",
+	)
+	d, err := Parse(strings.NewReader(file(recs...)), "rir")
+	if err != nil {
+		t.Fatalf("2 linhas ruins em %d (0,5%%) deveriam passar: %v", len(recs), err)
+	}
+	if d.Skipped != 2 || d.IPv4Records != 2 {
+		t.Errorf("Skipped = %d, IPv4Records = %d, quero 2 e 2: %v", d.Skipped, d.IPv4Records, d.Warnings)
+	}
+	var got []string
+	for _, p := range d.Prefixes {
+		got = append(got, p.Prefix.String())
+	}
+	if strings.Join(got, ",") != "192.0.2.0/24,198.51.100.0/24" {
+		t.Errorf("prefixos = %v, quero só os dois /24 válidos (nenhum 0.0.0.0/0 nem bloco absurdo)", got)
+	}
+}
+
 func TestParseRecordRules(t *testing.T) {
 	recs := append(good(1000),
 		"rir|br|ipv4|192.0.2.0|256|20200101|ALLOCATED|x1",        // cc e status normalizados
